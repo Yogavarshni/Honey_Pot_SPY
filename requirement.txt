@@ -11,6 +11,7 @@ langchain
 langchain-community
 langchain-core
 langchain-openai
+langchain-google-genai
 langchain-text-splitters
 langchainhub
 langgraph
@@ -34,3 +35,9 @@ tiktoken
 urllib3
 reportlab
 pygraphviz
+
+
+langgraph
+pandas
+langchain-google-genai
+langchain_classic

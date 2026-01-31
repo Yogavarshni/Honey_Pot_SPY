@@ -4,6 +4,7 @@ from utils import *
 import json
 
 def build_honey_pot():
+
     builder = StateGraph(State)  
  
     builder.add_node("Intent_Agent", intent_agent)
@@ -36,12 +37,17 @@ def build_honey_pot():
     graph = builder.compile()
  
     state: State = {
+        "session_id": "",
         "input_message": "",
         "scamDetected": False,
         "persona": "",
+        "totalMessagesExchanged": 0,
         "upiIds": "",
         "phishingLinks": "",
         "phoneNumbers": "",
+        "bankAccounts":"",
+        "suspiciousKeywords": [],
+        "agentNotes": "",
         "last_response": "",
         "close_chat": False,
     }
@@ -52,12 +58,21 @@ def build_honey_pot():
 input_message = input("Message")
 if input_message:
     graph, state = build_honey_pot()
+    state["session_id"] = "wertyu-dfghj-ertyui"
     state['input_message'] = input_message
     result = graph.invoke(state)
     payload = {
-        "upiIds":result["upiIds"],
-        "phoneNumbers": result["phoneNumbers"],
-        "phishingLinks": result["phishingLinks"]
+        "sessionId": result["session_id"],
+        "scamDetected": result["scamDetected"],
+        "totalMessagesExchanged": result["totalMessagesExchanged"],
+        "extractedIntelligence": {
+            "bankAccounts": result["bankAccounts"],
+            "upiIds": result["upiIds"],
+            "phishingLinks": result["phishingLinks"],
+            "phoneNumbers": result["phoneNumbers"],
+            "suspiciousKeywords": result["suspiciousKeywords"]
+        },
+        "agentNotes": result["agentNotes"]
     }
     print(json.dumps(payload, indent=2))
 

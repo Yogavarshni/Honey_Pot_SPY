@@ -1,13 +1,18 @@
 from state_struct import State
-import os, re
+import os, re, json
 
 api_key = ""
+
 os.environ['OPENAI_API_KEY'] = api_key
 
 from langchain_openai import ChatOpenAI
 from langchain_classic.memory import ConversationBufferMemory
 
 llm = ChatOpenAI(model_name = "gpt-4o", verbose = False)
+
+# os.environ["GOOGLE_API_KEY"]="AIzaSyD1YPbU4RQzWdwPEX8oV_NC4tkBRaIVdcA"
+# from langchain_google_genai import ChatGoogleGenerativeAI
+# llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash")
 
 def intent_agent(state: State):
     message = state["input_message"]
@@ -87,7 +92,7 @@ def persona_agent(state: State):
 
 
 memory = ConversationBufferMemory(
-    memory_key="chat_history",  # key under which memory is stored in state
+    memory_key="chat_history",  
     return_messages=True
 )
 
@@ -105,89 +110,28 @@ def chat_agent(state: State):
     phishing_links = state["phishingLinks"]
 
     prompt = f"""
-        You are a defensive scam-engagement AI operating inside a controlled honeypot.
+        You are a real person engaging in a conversation. You must stay in character based on the persona provided.
 
-        Your purpose is to:
-        Keep a suspected scammer engaged safely and calmly
-        Act as a realistic human persona
-        Encourage the scammer to voluntarily share payment or contact details
-        Never expose real personal, financial, or identity information
-        You are not trying to win, threaten, accuse, or educate the scammer.
-        You are not allowed to invent facts or claim actions that involve real money.
-        If uncertain, respond with confusion, delay, or clarification.
-
-        INPUTS 
-        You will receive:
-
-        {persona}: A short description of the human you are role-playing
-        (example: "Elderly person, low tech literacy, polite, slightly anxious”)
-
-        {memory}: Conversation history + facts already revealed by the scammer
-        (example: name used, bank mentioned, prior instructions)
-
-        {message}: The latest message sent by the scammer
+        Your goal is to be believable and keep the scammer talking so we can gather more information (upi ids, phone numbers, phishinh links).
 
         Collected so far: 
         - UPI ID: {upiIds or "NOT COLLECTED"}
         - Phone number: {phone_numbers or "NOT COLLECTED"}
         - Phishing link / website: {phishing_links or "NOT COLLECTED"} 
-        
-        PERSONA RULES
-        Stay fully in character
-        Match grammar, tone, and tech literacy of the persona
-        Sound natural, imperfect, and human
-        Do NOT suddenly become smart or technical
 
-        HARD SAFETY RULES (ABSOLUTE)
-        You must never:
-        - Share or request OTPs, PINs, passwords
-        - Share Aadhaar, PAN, SSN, or real identifiers
-        - Say you sent money or completed payment
-        - Mention police, cybercrime, AI, or security systems
-        - Ask leading questions like "Is this a scam?”
-        - If asked for restricted info → respond with confusion or delay, not refusal.
+        ### YOUR PERSONA
+        {persona}
 
-        RESPONSE STRATEGY
-        - Use one of these patterns only:
-        - Confusion
-        - Verification
-        - Delay
-        - Emotional hesitation
-        - Examples of allowed intent (not exact text):
-            "My app is showing something different”
-            "I don't understand this step"
-            "Can you explain again slowly"
-            "It's asking for some details I don't know”
+        ### CURRENT CONTEXT
+        Recent History: {memory}
+        Latest Message from Scammer: "{message}"
 
-        INTELLIGENCE AWARENESS (IMPORTANT):
-        You are not responsible for extraction.
-        However:
-        If the scammer provides payment details, links, or IDs, do not comment on them
-        Simply acknowledge naturally or ask a neutral clarification
-
-        STOP CONDITIONS:
-        If any of the following are true, return a neutral disengage:
-        - You have already responded many times
-        - The scammer repeats the same demand
-        - The scammer becomes aggressive
-        - The system indicates timeout or risk
-        - Neutral disengage examples:
-            "I need some time"
-            "I'll check and come back"
-        Then stop responding.
-
-        OUTPUT FORMAT (STRICT)
-        Return ONLY the reply text the persona would send.
-        No explanations.
-        No metadata.
-        No analysis.
-
-        One-Line Mental Model
-        You are a confused human, not a detective.
+        ### RESPONSE
+        Generate only the reply text. Do not include labels or meta-talk
     """
 
     response = llm.invoke(prompt).content.strip()
-
+    state["totalMessagesExchanged"] += 1
     memory.chat_memory.add_user_message(message)
     memory.chat_memory.add_ai_message(response)
 
@@ -213,11 +157,47 @@ def extractor_agent(state: State):
         url_pattern = r"(https?://[^\s]+)"
         url_matches = re.findall(url_pattern, last_response)
         state["phishingLinks"] = url_matches
+    
+    if not state["bankAccounts"]:
+        bank_pattern = r"\b\d{4}-\d{4}-\d{4}\b"
+        bank_matches = re.findall(bank_pattern, last_response)
+        state["bankAccounts"] = bank_matches
 
-    if state["upiIds"] and state["phoneNumbers"] and state["phishingLinks"]:
+    llm_prompt = f"""
+    You are a scam intelligence analyst.
+
+    From the message below:
+    1. Extract scam-related keywords or phrases (semantic, not regex)
+
+    Message:
+    "{last_response}"
+
+    Return comma-separated phrases only.
+    """
+
+    llm_response = llm.invoke(llm_prompt).content.strip()
+
+    keywords = [k.strip() for k in llm_response.split(",") if k.strip()]
+    if isinstance(keywords, list):
+        state["suspiciousKeywords"].extend(keywords)
+    elif isinstance(keywords, str):
+        state["suspiciousKeywords"].append(keywords)
+
+    state["suspiciousKeywords"] = list(set(state["suspiciousKeywords"]))
+
+    if not state["agentNotes"]:
+        notes_prompt = f"""
+        You are a scam intelligence analyst.
+        Summarize the scammer behavior in ONE short sentence.
+
+        Message:{last_response}
+        """
+        state["agentNotes"] = llm.invoke(notes_prompt).content.strip()
+    
+    if state["upiIds"] and state["phoneNumbers"] and state["phishingLinks"] and state["bankAccounts"]:
         state["close_chat"]= True
     else:
         state["close_chat"] = False
-        print(state['upiIds'], state["phoneNumbers"], state["phishingLinks"])
+        print(state['upiIds'], state["phoneNumbers"], state["phishingLinks"], state["bankAccounts"])
     
     return state
